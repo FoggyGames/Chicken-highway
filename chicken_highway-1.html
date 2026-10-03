@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Chicken Highway</title>
+<style>
+  * { box-sizing: border-box; touch-action: none; }
+  html, body { margin:0; width:100%; height:100%; overflow:hidden; background:#87ceeb; font-family:Arial,sans-serif; }
+  canvas { display:block; width:100%; height:100%; }
+  #hud {
+    position:fixed; top:12px; left:0; right:0; display:flex;
+    justify-content:space-between; padding:0 16px; color:white;
+    font-size:20px; font-weight:bold; text-shadow:2px 2px #000; pointer-events:none;
+  }
+  #message {
+    position:fixed; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; color:white;
+    text-align:center; text-shadow:3px 3px #000; pointer-events:none;
+  }
+  #message h1 { font-size:48px; margin:0 0 8px; }
+  #message p { font-size:21px; margin:4px; }
+  #start {
+    pointer-events:auto; margin-top:20px; padding:15px 30px; border:0;
+    border-radius:14px; background:#ffcc00; font-size:22px; font-weight:bold;
+    box-shadow:0 5px #9b7700;
+  }
+  #start:active { transform:translateY(4px); box-shadow:0 1px #9b7700; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<div id="hud"><span id="score">Score: 0</span><span id="best">Best: 0</span></div>
+<div id="message">
+  <h1>🐔 CHICKEN HIGHWAY</h1>
+  <p>Get the chicken across the highway!</p>
+  <p>Swipe or use the arrow keys.</p>
+  <button id="start">START CROSSING</button>
+</div>
+
+<script>
+const canvas=document.getElementById('game'), ctx=canvas.getContext('2d');
+const scoreEl=document.getElementById('score'), bestEl=document.getElementById('best');
+const message=document.getElementById('message'), startBtn=document.getElementById('start');
+
+let W,H,dpr, chicken, cars=[], score=0, best=Number(localStorage.getItem('chickenBest')||0);
+let running=false, last=0, spawnTimer=0, speed=1, laneCount=5, roadTop=0, roadBottom=0;
+
+bestEl.textContent='Best: '+best;
+
+function resize(){
+  dpr=Math.min(devicePixelRatio||1,2);
+  W=innerWidth; H=innerHeight;
+  canvas.width=W*dpr; canvas.height=H*dpr;
+  canvas.style.width=W+'px'; canvas.style.height=H+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  roadTop=H*0.20; roadBottom=H*0.82;
+  if(chicken){ chicken.x=Math.max(25,Math.min(W-25,chicken.x)); chicken.y=Math.min(chicken.y,H-35); }
+}
+addEventListener('resize',resize); resize();
+
+function reset(){
+  score=0; speed=1; cars=[]; spawnTimer=0;
+  chicken={x:W/2,y:H-70,size:27};
+  running=true; message.style.display='none'; last=performance.now();
+  requestAnimationFrame(loop);
+}
+
+function move(dir){
+  if(!running)return;
+  const step=Math.max(42,Math.min(75,W/8));
+  if(dir==='up') chicken.y-=step;
+  if(dir==='down') chicken.y+=step;
+  if(dir==='left') chicken.x-=step;
+  if(dir==='right') chicken.x+=step;
+  chicken.x=Math.max(25,Math.min(W-25,chicken.x));
+  chicken.y=Math.max(roadTop-35,Math.min(H-35,chicken.y));
+  if(chicken.y<=roadTop-28){ score++; chicken.y=H-70; speed+=0.07; }
+}
+
+let sx=0,sy=0;
+canvas.addEventListener('touchstart',e=>{const t=e.changedTouches[0];sx=t.clientX;sy=t.clientY;},{passive:false});
+canvas.addEventListener('touchend',e=>{
+  e.preventDefault(); const t=e.changedTouches[0],dx=t.clientX-sx,dy=t.clientY-sy;
+  if(Math.max(Math.abs(dx),Math.abs(dy))<25)return;
+  Math.abs(dx)>Math.abs(dy)?move(dx>0?'right':'left'):move(dy>0?'down':'up');
+},{passive:false});
+addEventListener('keydown',e=>{
+  const m={ArrowUp:'up',w:'up',ArrowDown:'down',s:'down',ArrowLeft:'left',a:'left',ArrowRight:'right',d:'right'}[e.key];
+  if(m){e.preventDefault();move(m);}
+});
+startBtn.onclick=reset;
+
+function spawnCar(){
+  const laneH=(roadBottom-roadTop)/laneCount;
+  const lane=Math.floor(Math.random()*laneCount);
+  const y=roadTop+lane*laneH+laneH/2;
+  const fromLeft=Math.random()<.5;
+  const colors=['#e53935','#1976d2','#f9a825','#43a047','#8e44ad','#ff7043'];
+  const w=55+Math.random()*25, h=30;
+  cars.push({x:fromLeft?-w:W+w,y,w,h,v:(150+Math.random()*100)*speed*(fromLeft?1:-1),c:colors[Math.floor(Math.random()*colors.length)]});
+}
+
+function collision(a,b){
+  return Math.abs(a.x-b.x)<(a.size+b.w/2-8) && Math.abs(a.y-b.y)<(a.size+b.h/2-7);
+}
+
+function drawBackground(){
+  ctx.fillStyle='#7ec850';ctx.fillRect(0,0,W,H);
+  ctx.fillStyle='#4caf50';ctx.fillRect(0,0,W,roadTop);
+  ctx.fillStyle='#4caf50';ctx.fillRect(0,roadBottom,W,H-roadBottom);
+  ctx.fillStyle='#333';ctx.fillRect(0,roadTop,W,roadBottom-roadTop);
+  const laneH=(roadBottom-roadTop)/laneCount;
+  ctx.strokeStyle='#eee';ctx.lineWidth=4;ctx.setLineDash([25,25]);
+  for(let i=1;i<laneCount;i++){
+    ctx.beginPath();ctx.moveTo(0,roadTop+i*laneH);ctx.lineTo(W,roadTop+i*laneH);ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  ctx.fillStyle='#fff';ctx.fillRect(0,roadTop-3,W,6);ctx.fillRect(0,roadBottom-3,W,6);
+  // grass details
+  ctx.font='25px sans-serif';
+  for(let x=20;x<W;x+=70){ctx.fillText('🌼',x,roadTop-12);ctx.fillText('🌱',x+30,roadBottom+30);}
+}
+
+function drawCar(c){
+  ctx.save();ctx.translate(c.x,c.y);
+  if(c.v<0)ctx.scale(-1,1);
+  ctx.fillStyle='#111';ctx.fillRect(-c.w/2,-c.h/2,c.w,c.h);
+  ctx.fillStyle=c.c;ctx.fillRect(-c.w/2+4,-c.h/2+3,c.w-8,c.h-6);
+  ctx.fillStyle='#bde7ff';ctx.fillRect(-c.w*.22,-c.h*.38,c.w*.44,c.h*.32);
+  ctx.fillStyle='#222';ctx.fillRect(-c.w*.36,c.h*.25,c.w*.2,10);ctx.fillRect(c.w*.16,c.h*.25,c.w*.2,10);
+  ctx.restore();
+}
+
+function drawChicken(){
+  const x=chicken.x,y=chicken.y,s=chicken.size;
+  ctx.save();ctx.translate(x,y);
+  ctx.font=(s*1.6)+'px serif';ctx.textAlign='center';ctx.textBaseline='middle';
+  ctx.fillText('🐔',0,0);
+  ctx.restore();
+}
+
+function gameOver(){
+  running=false;
+  best=Math.max(best,score);localStorage.setItem('chickenBest',best);
+  bestEl.textContent='Best: '+best;
+  message.innerHTML='<h1>💥 SPLAT!</h1><p>You made it across '+score+' time'+(score===1?'':'s')+'!</p><p>Best: '+best+'</p><button id="start">TRY AGAIN</button>';
+  message.style.display='flex';
+  document.getElementById('start').onclick=reset;
+}
+
+function loop(t){
+  if(!running)return;
+  const dt=Math.min((t-last)/1000,.033); last=t;
+  spawnTimer-=dt;
+  if(spawnTimer<=0){spawnCar();spawnTimer=Math.max(.35,1.05-speed*.08)*(.65+Math.random()*.55);}
+  cars.forEach(c=>c.x+=c.v*dt);
+  cars=cars.filter(c=>c.x>-120&&c.x<W+120);
+  for(const c of cars) if(collision(chicken,c)){gameOver();return;}
+  scoreEl.textContent='Crossings: '+score;
+  drawBackground();cars.forEach(drawCar);drawChicken();
+  requestAnimationFrame(loop);
+}
+drawBackground();
+</script>
+</body>
+</html>
